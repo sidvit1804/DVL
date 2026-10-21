@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Library</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:wght@500;700&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f4f0;--card:#fff;--ink:#16212b;--mut:#5d6b75;--acc:#1f6f5c;--on:#fff;--line:#d9dfd8;--warn:#b4541a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181e;--card:#1a252d;--ink:#e8edf0;--mut:#93a2ac;--acc:#4fb597;--on:#0c1a15;--line:#2c3a44;--warn:#e58a4f;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Instrument Sans",system-ui,sans-serif;padding-bottom:84px}
+h1,h2,h3{font-family:Newsreader,Georgia,serif;margin:0}h1{font-size:30px;line-height:1.1}h2{font-size:22px;margin:4px 0 10px}h3{font-size:18px}
+main{max-width:560px;margin:0 auto;padding:18px 16px}.muted{color:var(--mut);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0;display:flex;gap:12px}
+.cv{flex:none;width:58px;height:82px;border-radius:3px 8px 8px 3px;color:#fff;font:700 12px/1.15 Newsreader,Georgia,serif;padding:7px 6px;overflow:hidden;border-left:5px solid rgba(0,0,0,.28)}
+.grow{flex:1;min-width:0}
+.btn{font:600 14px "Instrument Sans",sans-serif;background:var(--acc);color:var(--on);border:0;border-radius:8px;padding:9px 12px;margin:8px 6px 0 0;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}.btn.big{width:100%;padding:13px;font-size:16px}
+.pill{display:inline-block;font-size:12px;border:1px solid var(--line);border-radius:99px;padding:1px 9px;color:var(--mut)}.pill.ok{color:var(--acc);border-color:var(--acc)}.pill.bad{color:var(--warn);border-color:var(--warn)}
+input,select{width:100%;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.tabs{display:flex;gap:6px;margin:14px 0 6px}.tabs button{flex:1;font:600 14px "Instrument Sans",sans-serif;padding:9px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink)}.tabs button.on{background:var(--acc);color:var(--on);border-color:var(--acc)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;background:none;border:0;padding:14px 4px;font:600 13px "Instrument Sans",sans-serif;color:var(--mut)}nav button.on{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sheet{background:var(--bg);width:100%;max-width:560px;border-radius:16px 16px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0px));max-height:92%;overflow:auto}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:96px;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:9;max-width:90%}
+.pol li{margin:6px 0}
+</style></head><body>
+<main id="app"></main><div id="toast" hidden></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== STEP 1: paste your two values from Supabase > Project Settings > API ===== */
+const CONFIG={URL:"https://fclwqbexuxxpfnrmtqhl.supabase.co",KEY:"sb_publishable_BJbiQMSl6Oydu1yo38fIQg_OKKmLUPA"};
+/* ================================================================================= */
+const H=36e5,D=864e5,$=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cv=t=>`<div class="cv" style="background:hsl(${[...t].reduce((a,c)=>a*31+c.charCodeAt(0),7)%360} 38% 34%)">${esc(t)}</div>`;
+const left=ms=>{const h=Math.max(1,Math.ceil(ms/H));return h>=48?Math.ceil(h/24)+" days":h+" h"};
+let tt;const toast=m=>{const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,3000)};
+let S={me:null,tab:"browse",q:"",av:false,books:[],loans:[],people:[],modal:false,mode:"in",f:{}};
+let sb;
+
+async function boot(){
+  if(CONFIG.URL.startsWith("PASTE")){$("#app").innerHTML=`<h1>Almost there</h1><p>Open this file and paste your Supabase Project URL and anon key into the two lines at the top of the script.</p>`;return}
+  sb=supabase.createClient(CONFIG.URL,CONFIG.KEY);
+  sb.auth.onAuthStateChange((ev,s)=>setTimeout(()=>load(s),0));
+}
+async function load(session){
+  if(!session){S.me=null;render();return}
+  const {data}=await sb.from("profiles").select("*").eq("id",session.user.id).single();
+  S.me=data?{...data,email:session.user.email}:null;
+  if(S.me&&S.me.status==="active")await refresh();else render();
+}
+async function refresh(){
+  const m=S.me;if(!m||m.status!=="active"){render();return}
+  if(S.tab==="browse")await getBooks();
+  if(S.tab==="loans"){await sb.rpc("expire_pickups");
+    const {data}=await sb.from("loans").select("*,book:books(title,copy_code),lender:profiles!loans_lender_id_fkey(name),borrower:profiles!loans_borrower_id_fkey(name)").order("created_at",{ascending:false});S.loans=data||[]}
+  if(S.tab==="admin"){const {data}=await sb.from("profiles").select("*").in("status",["pending","active","suspended"]).order("created_at");S.people=data||[]}
+  render();
+}
+async function getBooks(){
+  let q=sb.from("books").select("*,owner:profiles!books_owner_id_fkey(name)").neq("status","hidden").order("created_at",{ascending:false});
+  const t=S.q.replace(/[,()%]/g," ").trim();if(t)q=q.or(`title.ilike.%${t}%,author.ilike.%${t}%`);
+  if(S.av)q=q.eq("status","available");
+  const {data}=await q;S.books=data||[];
+}
+
+function authView(){const up=S.mode==="up";return`<h1>The Library</h1><p class="muted">Borrow books from people nearby. Lend your own.</p>
+<div class="tabs"><button data-a="mode" data-i="in" class="${up?"":"on"}">Sign in</button><button data-a="mode" data-i="up" class="${up?"on":""}">Create account</button></div>
+${up?`<input id="nm" placeholder="Your name" autocomplete="name">`:""}<input id="em" type="email" placeholder="Email" autocomplete="email"><input id="pw" type="password" placeholder="Password (6+ characters)" autocomplete="${up?"new-password":"current-password"}">
+<button class="btn big" data-a="auth">${up?"Create account":"Sign in"}</button>
+<p class="muted">New members are approved by an admin before they can borrow or lend.</p>`}
+function holdView(){const s=S.me?.status;return`<h1>${s==="pending"?"Awaiting approval":"Account unavailable"}</h1><p class="muted">${s==="pending"?"An admin will review your request soon. Check again shortly.":"Your account is "+esc(s||"not set up")+". Contact the admin to appeal."}</p><button class="btn" data-a="recheck">Check again</button><button class="btn ghost" data-a="out">Sign out</button>`}
+
+function bookCards(){return S.books.length?S.books.map(b=>{const own=b.owner_id===S.me.id;
+return`<div class="card">${cv(b.title)}<div class="grow"><h3>${esc(b.title)}</h3><div class="muted">${esc(b.author)}</div><div class="muted">${own?"Yours":esc(b.owner?.name)} · ${esc(b.condition)} · ${esc(b.copy_code)}</div>
+<span class="pill ${b.status==="available"?"ok":""}">${b.status==="available"?"Available":b.status==="reserved"?"Reserved":"On loan"}</span>
+${b.status==="available"&&!own?`<br><button class="btn" data-a="req" data-i="${b.id}">Request to borrow</button>`:""}</div></div>`}).join("")
+:`<p class="muted">No books match yet.</p><button class="btn ghost" data-a="wish">Add to wishlist</button>`}
+function browse(){return`<h1>Browse</h1><input id="q" placeholder="Search title or author" value="${esc(S.q)}"><select id="av"><option value="0">All books</option><option value="1" ${S.av?"selected":""}>Available now</option></select><div id="res">${bookCards()}</div>`}
+
+function btns(l){const lend=l.lender_id===S.me.id,bor=l.borrower_id===S.me.id;
+const b=(a,t,g)=>`<button class="btn ${g?"ghost":""}" data-a="${a}" data-i="${l.id}">${t}</button>`;let h="";
+if(l.status==="requested"&&lend)h=b("ok","Approve")+b("no","Decline",1);
+if(l.status==="approved"){if(bor&&!l.borrower_picked_up)h=b("pick","I picked it up");if(lend&&l.borrower_picked_up)h=b("pickok","Approve pickup")}
+if(l.status==="active"){if(bor){if(!l.extension_requested&&l.extensions<2)h+=b("ext","Ask for more time",1);if(!l.borrower_marked_returned)h+=b("ret","I returned it")}
+ if(lend){if(l.extension_requested)h+=b("extok","Approve 1 more week");if(l.borrower_marked_returned)h+=b("retok","Confirm return")}}
+if(l.status==="returned"&&lend)h=b("dmg","Report damage",1);return h}
+function stat(l){const d=Date.parse(l.due_at)-Date.now(),dl=Date.parse(l.pickup_deadline)-Date.now();
+if(l.status==="requested")return"Waiting for the lender to approve";
+if(l.status==="approved")return l.borrower_picked_up?"Waiting for the lender to approve pickup":`Pick up within ${left(dl)} or the request is cancelled`;
+if(l.status==="active")return(d<0?`<b style="color:var(--warn)">Overdue by ${left(-d)}</b>`:`Return in ${left(d)}`)+(l.extension_requested?" · extension requested":"")+(l.borrower_marked_returned?" · return awaiting confirmation":"");
+return{returned:"Returned",declined:"Declined",expired:"Expired: no pickup in 24 hours",cancelled:"Cancelled"}[l.status]}
+function loansView(){return`<h1>My loans</h1>`+(S.loans.length?S.loans.map(l=>`<div class="card">${cv(l.book?.title||"Book")}<div class="grow"><h3>${esc(l.book?.title)}</h3><div class="muted">${esc(l.lender?.name)} lends to ${esc(l.borrower?.name)}</div><div>${stat(l)}</div>${btns(l)}</div></div>`).join(""):`<p class="muted">No loans yet. Find a book on Browse.</p>`)}
+
+function adminView(){const p=S.people.filter(x=>x.status==="pending"),a=S.people.filter(x=>x.status==="active"&&x.id!==S.me.id);
+return`<h1>Admin</h1><h2>Waiting for approval</h2>${p.length?p.map(x=>`<div class="card"><div class="grow"><b>${esc(x.name)}</b></div><button class="btn" data-a="mem" data-i="${x.id}|active">Accept</button><button class="btn ghost" data-a="mem" data-i="${x.id}|removed">Reject</button></div>`).join(""):`<p class="muted">No applications waiting.</p>`}
+<h2>Members</h2>${a.length?a.map(x=>`<div class="card"><div class="grow"><b>${esc(x.name)}</b></div><button class="btn ghost" data-a="mem" data-i="${x.id}|suspended">Suspend</button><button class="btn ghost" data-a="mem" data-i="${x.id}|removed">Remove</button></div>`).join(""):`<p class="muted">No other members yet.</p>`}`}
+
+function meView(){return`<h1>${esc(S.me.name)}</h1><p class="muted">${esc(S.me.email)} · ${esc(S.me.role)}</p><button class="btn ghost" data-a="out">Sign out</button>
+<h2 style="margin-top:20px">Community policy</h2><ul class="pol"><li>Membership is by approval. The admin may accept or decline any application.</li>
+<li>The admin may suspend or remove a member for overdue or unreturned books, damage, false listings, harassment, or breaking these rules. Members are told why and may appeal.</li>
+<li>Pick up an approved book within 24 hours or the request is cancelled.</li><li>Loans last 2 weeks. Ask the lender for any extension.</li>
+<li>Both sides confirm pickup and return. Lenders may report damage after a return.</li><li>Books unreturned 30 days after the due date lead to suspension.</li>
+<li>The Library only connects members. It isn’t responsible for lost or damaged books.</li></ul>`}
+
+function addView(){return`<div class="modal" data-a="close"><div class="sheet"><h2>Add a book</h2>
+<input id="nt" placeholder="Title"><input id="na" placeholder="Author"><div class="row"><input id="ng" placeholder="Genre"><select id="nc"><option>Like new</option><option selected>Good</option><option>Worn</option></select></div>
+<button class="btn big" data-a="save">Add book</button></div></div>`}
+
+function render(){const app=$("#app");
+if(!S.me){app.innerHTML=authView();return}
+if(S.me.status!=="active"){app.innerHTML=holdView();return}
+const v={browse:browse,loans:loansView,admin:adminView,me:meView}[S.tab]||browse;
+const tabs=[["browse","Browse"],["add","Add"],["loans","Loans"],...(S.me.role==="admin"?[["admin","Admin"]]:[]),["me","Me"]];
+app.innerHTML=v()+(S.modal?addView():"")+`<nav>${tabs.map(([k,t])=>`<button data-a="tab" data-i="${k}" class="${S.tab===k?"on":""}">${t}</button>`).join("")}</nav>`}
+
+const upd=(id,o)=>sb.from("loans").update(o).eq("id",id);
+const ln=id=>S.loans.find(l=>l.id===id);
+const A={
+mode:i=>{S.mode=i;render()},
+auth:async()=>{const email=$("#em").value.trim(),password=$("#pw").value;
+ const r=S.mode==="up"?await sb.auth.signUp({email,password,options:{data:{full_name:$("#nm").value.trim()}}}):await sb.auth.signInWithPassword({email,password});
+ if(r.error)return toast(r.error.message);if(S.mode==="up"&&!r.data.session)toast("Check your email to confirm your account, then sign in.")},
+out:async()=>{await sb.auth.signOut()},
+recheck:async()=>{const {data}=await sb.auth.getSession();await load(data.session)},
+tab:i=>{if(i==="add"){S.modal=true;render()}else{S.tab=i;return refresh()}},
+close:()=>{S.modal=false;render()},
+save:async()=>{const title=$("#nt").value.trim();if(!title)return toast("Add a title first");
+ const {error}=await sb.from("books").insert({owner_id:S.me.id,title,author:$("#na").value.trim()||"Unknown",genre:$("#ng").value.trim()||"General",condition:$("#nc").value});
+ if(error)return toast(error.message);S.modal=false;S.tab="browse";toast("Book added");await refresh()},
+req:async i=>{const b=S.books.find(x=>x.id===i);const {error}=await sb.from("loans").insert({book_id:i,lender_id:b.owner_id,borrower_id:S.me.id});
+ if(error)return toast(error.message);toast("Request sent to "+(b.owner?.name||"the owner"));S.tab="loans";await refresh()},
+wish:async()=>{if(!S.q.trim())return toast("Search for a title first");await sb.from("wishlist").insert({user_id:S.me.id,query:S.q.trim()});toast("Added. You’ll be told when it’s listed.")},
+ok:async i=>{await upd(i,{status:"approved"});toast("Approved. Pickup window: 24 hours");await refresh()},
+no:async i=>{await upd(i,{status:"declined"});await refresh()},
+pick:async i=>{await upd(i,{borrower_picked_up:true});await refresh()},
+pickok:async i=>{await upd(i,{status:"active"});toast("Pickup confirmed. 14 days start now");await refresh()},
+ext:async i=>{await upd(i,{extension_requested:true});toast("Extension request sent");await refresh()},
+extok:async i=>{const l=ln(i);await upd(i,{due_at:new Date(Date.parse(l.due_at)+7*D).toISOString(),extensions:l.extensions+1,extension_requested:false});await refresh()},
+ret:async i=>{await upd(i,{borrower_marked_returned:true});await refresh()},
+retok:async i=>{await upd(i,{status:"returned"});toast("Return confirmed");await refresh()},
+dmg:async i=>{const d=prompt("Describe the damage");if(!d)return;const {error}=await sb.from("complaints").insert({loan_id:i,reporter_id:S.me.id,description:d});toast(error?error.message:"Complaint sent to moderators")},
+mem:async i=>{const [id,st]=i.split("|");const {error}=await sb.rpc("set_member_status",{target:id,new_status:st});toast(error?error.message:"Member updated");await refresh()}};
+
+document.addEventListener("click",async e=>{const t=e.target.closest("[data-a]");if(!t)return;if(t.classList.contains("modal")&&e.target!==t)return;
+ try{await A[t.dataset.a](t.dataset.i)}catch(x){toast("Something went wrong. Try again.")}});
+let dt;document.addEventListener("input",e=>{if(e.target.id==="q"){S.q=e.target.value;clearTimeout(dt);dt=setTimeout(async()=>{await getBooks();$("#res").innerHTML=bookCards()},300)}});
+document.addEventListener("change",async e=>{if(e.target.id==="av"){S.av=e.target.value==="1";await getBooks();$("#res").innerHTML=bookCards()}});
+boot();
+</script></body></html>
